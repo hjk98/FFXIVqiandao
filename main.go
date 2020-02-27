@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/robfig/cron/v3"
 )
 
 var (
@@ -40,17 +38,10 @@ var (
 )
 
 func main() {
-	c := cron.New()
 	accounts := getAccounts()
 	for _, acc := range accounts {
-		_, err := c.AddJob("@daily", acc)
-		if err != nil {
-			log.Fatalf("Fail to AddJob: %v\n", err)
-		}
+		acc.Run()
 	}
-	c.Start()
-	defer c.Stop()
-	select {}
 }
 
 func (acc Account) Run() {
