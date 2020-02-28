@@ -114,6 +114,7 @@ func step1(acc Account, client *http.Client) string {
 	}
 	setheader(header, req)
 
+Foo:
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalf("Fail to Do: %v\n", err)
@@ -132,7 +133,8 @@ func step1(acc Account, client *http.Client) string {
 			log.Fatalf("Fail to NewReader: %v\n", err)
 		}
 	} else {
-		reader = resp.Body
+		time.Sleep(time.Second)
+		goto Foo
 	}
 	b, err := ioutil.ReadAll(reader)
 	if err != nil {
