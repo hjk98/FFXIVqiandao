@@ -14,39 +14,18 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-)
-
-var (
-	header = map[string]string{
-		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
-		"Accept-Encoding":           "gzip, deflate, br",
-		"Accept-Language":           "zh-CN,zh;q=0.9,en;q=0.8",
-		"Cache-Control":             "no-cache",
-		"Connection":                "keep-alive",
-		"Cookie":                    "CASCID=CID2BFCADB9A0154A9D877294366E144906; sdo_cas_id=10.129.20.137; CAS_LOGIN_STATE=1; sdo_dw_track=G81Y/L1voXjLY8VH5ZWfpw==; CASTGC=ULSTGT-f0caef48519646a09e4ecee2f864e40a",
-		"Host":                      "cas.sdo.com",
-		"Pragma":                    "no-cache",
-		"Sec-Fetch-Mode":            "navigate",
-		"Sec-Fetch-Site":            "none",
-		"Sec-Fetch-User":            "?1",
-		"Upgrade-Insecure-Requests": "1",
-		"User-Agent":                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36",
-	}
-	m = map[string]string{
-		"陆行鸟": "1",
-		"莫古力": "6",
-		"猫小胖": "7",
-	}
+	"github.com/spf13/viper"
 )
 
 func main() {
 	c := cron.New()
 	accounts := getAccounts()
 	for _, acc := range accounts {
-		_, err := c.AddJob("@daily", acc)
+		id, err := c.AddJob("@daily", acc)
 		if err != nil {
 			log.Fatalf("Fail to AddJob: %v\n", err)
 		}
+		log.Printf("%d:%s\n", id, acc.RoleName)
 	}
 	c.Start()
 	defer c.Stop()
@@ -62,20 +41,22 @@ func (acc Account) Run() {
 		Jar: jar,
 	}
 
-	tic := step1(acc, c)
+	viper.SetConfigFile("config.json")
+	err = viper.ReadInConfig()
+	if err != nil {
+		log.Printf("Fail to ReadInConfig: %v\n", err)
+	}
+	h := viper.GetViper().GetStringMapStringSlice("header")
+	m := viper.GetViper().GetStringMapString("area_id")
+
+	tic := step1(acc, h, c)
 	step2(acc, c)
 	step3(c)
 	step4(tic, c)
-	role := step5(acc, c)
-	step6(acc, role, c)
+	role := step5(acc, m, c)
+	step6(acc, role, m, c)
 	step7(c)
 	step8(c)
-}
-
-func setheader(h map[string]string, req *http.Request) {
-	for k, v := range h {
-		req.Header.Set(k, v)
-	}
 }
 
 func getURL(h string, p map[string]string) string {
@@ -92,7 +73,7 @@ func getURL(h string, p map[string]string) string {
 }
 
 // 提交用户名和密码，获取ticket
-func step1(acc Account, client *http.Client) string {
+func step1(acc Account, header http.Header, client *http.Client) string {
 	host := "https://cas.sdo.com/authen/staticLogin.jsonp"
 	params := map[string]string{
 		"callback":            "staticLogin_JSONPMethod",
@@ -121,7 +102,7 @@ func step1(acc Account, client *http.Client) string {
 	if err != nil {
 		log.Fatalf("Fail to NewRequest: %v\n", err)
 	}
-	setheader(header, req)
+	req.Header = header
 
 Foo:
 	resp, err := client.Do(req)
@@ -142,8 +123,7 @@ Foo:
 			log.Fatalf("Fail to NewReader: %v\n", err)
 		}
 	} else {
-		time.Sleep(time.Second)
-		goto Foo
+		reader = resp.Body
 	}
 	b, err := ioutil.ReadAll(reader)
 	if err != nil {
@@ -151,6 +131,11 @@ Foo:
 	}
 
 	text := string(b)
+	if !strings.Contains(text, "staticLogin_JSONPMethod") {
+		time.Sleep(time.Second)
+		goto Foo
+	}
+
 	text = text[strings.Index(text, "(")+1 : strings.LastIndex(text, ")")]
 	respBody := &struct {
 		ReturnCode    int    `json:"return_code"`
@@ -233,7 +218,7 @@ func step4(ticket string, client *http.Client) {
 }
 
 // 查询角色列表
-func step5(acc Account, client *http.Client) string {
+func step5(acc Account, m map[string]string, client *http.Client) string {
 	host := "http://act.ff.sdo.com/20180707jifen/Server/ff14/HGetRoleList.ashx"
 	ipid, ok := m[acc.AreaName]
 	if !ok {
@@ -300,7 +285,7 @@ func step5(acc Account, client *http.Client) string {
 }
 
 // 选择区服及角色
-func step6(acc Account, role string, client *http.Client) {
+func step6(acc Account, role string, m map[string]string, client *http.Client) {
 	host := "http://act.ff.sdo.com/20180707jifen/Server/ff14/HGetRoleList.ashx"
 	areaId, ok := m[acc.AreaName]
 	if !ok {
